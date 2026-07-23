@@ -16,6 +16,12 @@ type ZeroGTFSEncoder struct {
 	schedules     []*Schedule
 	patternIndex  map[string]uint32
 	nextPatternID uint32
+
+	// Index maps for converting GTFS IDs to array indices
+	stopIDToIndex    map[string]uint16
+	routeIDToIndex   map[string]uint16
+	serviceIDToIndex map[string]uint16
+	agencyIDToIndex  map[string]uint16
 }
 
 func NewZeroGTFSEncoder(data *MockGTFSData) *ZeroGTFSEncoder {
@@ -25,66 +31,100 @@ func NewZeroGTFSEncoder(data *MockGTFSData) *ZeroGTFSEncoder {
 		patterns:     make(map[string]*TripPattern),
 		schedules:    make([]*Schedule, 0),
 		patternIndex: make(map[string]uint32),
+
+		// Initialize index maps
+		stopIDToIndex:    make(map[string]uint16),
+		routeIDToIndex:   make(map[string]uint16),
+		serviceIDToIndex: make(map[string]uint16),
+		agencyIDToIndex:  make(map[string]uint16),
 	}
 }
 
 func (e *ZeroGTFSEncoder) Encode(filename string) error {
 
+	// Build index maps for all GTFS entities
+	e.buildIndexMaps()
+
+	// Tokenize only display strings (not internal IDs)
 	e.tokenizeAllStrings()
 
+	// Extract trip patterns with stop indices and fixed delta times
 	e.extractTripPatterns()
 
+	// Build schedules with indices instead of tokens
 	e.buildSchedules()
 
 	return e.writeBinaryFile(filename)
 }
 
-func (e *ZeroGTFSEncoder) tokenizeAllStrings() {
-	fmt.Println("    - Tokenizing strings...")
+// buildIndexMaps creates mappings from GTFS IDs to 0-based array indices
+// This allows us to avoid storing full strings for internal IDs, using compact uint16 indices instead
+func (e *ZeroGTFSEncoder) buildIndexMaps() {
+	fmt.Println("    - Building index maps for GTFS entities...")
 
-	for _, agency := range e.data.Agencies {
-		e.stringTable.Tokenize(agency.AgencyId)
-		e.stringTable.Tokenize(agency.Name)
-		e.stringTable.Tokenize(agency.Url)
-		e.stringTable.Tokenize(agency.Timezone)
-		e.stringTable.Tokenize(agency.Lang)
-		e.stringTable.Tokenize(agency.Phone)
-		e.stringTable.Tokenize(agency.FareUrl)
+	// Map stop IDs to their array indices
+	for i, stop := range e.data.Stops {
+		e.stopIDToIndex[stop.StopId] = uint16(i)
 	}
 
+	// Map route IDs to their array indices
+	for i, route := range e.data.Routes {
+		e.routeIDToIndex[route.RouteId] = uint16(i)
+	}
+
+	// Map service IDs to their array indices (note: need to extract unique service IDs from trips)
+	serviceIDMap := make(map[string]bool)
+	for _, trip := range e.data.Trips {
+		serviceIDMap[trip.ServiceId] = true
+	}
+	serviceIndex := uint16(0)
+	for serviceID := range serviceIDMap {
+		e.serviceIDToIndex[serviceID] = serviceIndex
+		serviceIndex++
+	}
+
+	// Map agency IDs to their array indices
+	for i, agency := range e.data.Agencies {
+		e.agencyIDToIndex[agency.AgencyId] = uint16(i)
+	}
+
+	fmt.Printf("    - Built maps: %d stops, %d routes, %d services, %d agencies\n",
+		len(e.stopIDToIndex), len(e.routeIDToIndex), len(e.serviceIDToIndex), len(e.agencyIDToIndex))
+}
+
+// tokenizeAllStrings only tokenizes human-readable display strings (NOT internal IDs)
+// This prevents the uint16 token overflow hazard by excluding IDs like stop_id, route_id, etc.
+func (e *ZeroGTFSEncoder) tokenizeAllStrings() {
+	fmt.Println("    - Tokenizing human-readable display strings only...")
+
+	// Tokenize ONLY display names/phone numbers from agencies (NOT AgencyID)
+	for _, agency := range e.data.Agencies {
+		e.stringTable.Tokenize(agency.Name)
+		e.stringTable.Tokenize(agency.Phone)
+		// NOTE: Do NOT tokenize agency.AgencyId - it's an internal ID
+	}
+
+	// Tokenize ONLY display info from stops (NOT StopID)
 	for _, stop := range e.data.Stops {
-		e.stringTable.Tokenize(stop.StopId)
 		e.stringTable.Tokenize(stop.Name)
 		e.stringTable.Tokenize(stop.Code)
-		e.stringTable.Tokenize(stop.Desc)
-		e.stringTable.Tokenize(stop.ZoneId)
-		e.stringTable.Tokenize(stop.Url)
-		e.stringTable.Tokenize(stop.ParentStation)
+		// NOTE: Do NOT tokenize stop.StopId - it's an internal ID
 	}
 
+	// Tokenize ONLY display names from routes (NOT RouteID or AgencyID)
 	for _, route := range e.data.Routes {
-		e.stringTable.Tokenize(route.RouteId)
-		e.stringTable.Tokenize(route.AgencyId)
 		e.stringTable.Tokenize(route.ShortName)
 		e.stringTable.Tokenize(route.LongName)
-		e.stringTable.Tokenize(route.Desc)
-		e.stringTable.Tokenize(route.Url)
+		// NOTE: Do NOT tokenize route.RouteId or route.AgencyId - they are internal IDs
 	}
 
+	// Tokenize ONLY headsigns from trips (NOT TripID, RouteID, or ServiceID)
 	for _, trip := range e.data.Trips {
-		e.stringTable.Tokenize(trip.TripId)
-		e.stringTable.Tokenize(trip.RouteId)
-		e.stringTable.Tokenize(trip.ServiceId)
-		e.stringTable.Tokenize(trip.ShapeId)
 		e.stringTable.Tokenize(trip.Headsign)
+		// NOTE: Do NOT tokenize trip.TripId, trip.RouteId, or trip.ServiceId - they are internal IDs
 	}
 
-	for _, st := range e.data.StopTimes {
-		e.stringTable.Tokenize(st.TripId)
-		e.stringTable.Tokenize(st.StopId)
-	}
-
-	fmt.Printf("    - Total unique strings: %d\n", len(e.stringTable.IDToString))
+	fmt.Printf("    - Total unique display strings: %d\n", len(e.stringTable.IDToString))
 }
 
 func (e *ZeroGTFSEncoder) extractTripPatterns() {
@@ -118,17 +158,23 @@ func (e *ZeroGTFSEncoder) extractTripPatterns() {
 			patternID := e.nextPatternID
 			e.nextPatternID++
 
-			stopTokens := make([]uint16, len(stopList))
+			stopIndices := make([]uint16, len(stopList))
 			deltaTimes := make([]uint16, len(stopList))
 
 			for i, st := range stopList {
-				stopTokens[i] = e.stringTable.Tokenize(st.StopId)
+				// Store 0-based stop index instead of string token
+				stopIdx, ok := e.stopIDToIndex[st.StopId]
+				if !ok {
+					log.Printf("Warning: stop %s not found in index\n", st.StopId)
+					continue
+				}
+				stopIndices[i] = stopIdx
 
 				if i == 0 {
-
-					deltaTimes[i] = uint16(st.DepartTime % 65536)
+					// FIX: First stop delta time must be 0 (absolute time is stored separately in EncodedSchedule.FirstStopDepartTime)
+					deltaTimes[i] = 0
 				} else {
-
+					// Calculate delta from previous stop
 					delta := st.DepartTime - stopList[i-1].DepartTime
 					if delta > 65535 {
 						deltaTimes[i] = 65535
@@ -141,7 +187,7 @@ func (e *ZeroGTFSEncoder) extractTripPatterns() {
 			e.patterns[signature] = &TripPattern{
 				PatternID:    patternID,
 				StopCount:    uint16(len(stopList)),
-				StopIDTokens: stopTokens,
+				StopIDTokens: stopIndices, // Now contains indices, not tokens
 				DeltaTimes:   deltaTimes,
 			}
 			e.patternIndex[signature] = patternID
@@ -196,20 +242,33 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 		patternID := e.patternIndex[sig]
 		stopList := tripStopTimes[trip.TripId]
 
+		// Get indices for service and route
+		serviceIdx, ok := e.serviceIDToIndex[trip.ServiceId]
+		if !ok {
+			log.Printf("Warning: service %s not found in index\n", trip.ServiceId)
+			continue
+		}
+
+		routeIdx, ok := e.routeIDToIndex[trip.RouteId]
+		if !ok {
+			log.Printf("Warning: route %s not found in index\n", trip.RouteId)
+			continue
+		}
+
+		// Pack DirectionID and WheelchairAccessible into flags byte
 		wheelchairBit := uint8(0)
 		if trip.WheelchairAccessible == "1" {
 			wheelchairBit = 1
 		}
+		flags := PackScheduleFlags(uint8(trip.DirectionId), wheelchairBit)
 
 		schedule := &Schedule{
-			PatternID:            patternID,
-			TripIDToken:          e.stringTable.Tokenize(trip.TripId),
-			ServiceIDToken:       e.stringTable.Tokenize(trip.ServiceId),
-			HeadsignToken:        e.stringTable.Tokenize(trip.Headsign),
-			FirstStopDepartTime:  stopList[0].DepartTime,
-			RouteIDToken:         e.stringTable.Tokenize(trip.RouteId),
-			DirectionID:          uint8(trip.DirectionId),
-			WheelchairAccessible: wheelchairBit,
+			PatternID:           patternID,
+			ServiceIndex:        serviceIdx,
+			RouteIndex:          routeIdx,
+			HeadsignToken:       e.stringTable.Tokenize(trip.Headsign), // Only display string
+			FirstStopDepartTime: stopList[0].DepartTime,
+			Flags:               flags,
 		}
 		e.schedules = append(e.schedules, schedule)
 	}
@@ -236,7 +295,7 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 	header.AgencyOff = uint32(buf.Len())
 	for _, agency := range e.data.Agencies {
 		enc := &EncodedAgency{
-			AgencyIDToken: e.stringTable.Tokenize(agency.AgencyId),
+			AgencyIDLen:   uint16(len(agency.AgencyId)),
 			NameToken:     e.stringTable.Tokenize(agency.Name),
 			URLToken:      e.stringTable.Tokenize(agency.Url),
 			TimezoneToken: e.stringTable.Tokenize(agency.Timezone),
@@ -245,13 +304,19 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 			FareURLToken:  e.stringTable.Tokenize(agency.FareUrl),
 		}
 		binary.Write(buf, binary.LittleEndian, enc)
+		buf.WriteString(agency.AgencyId)
 	}
 	header.AgencyCount = uint32(len(e.data.Agencies))
 
 	header.StopsOff = uint32(buf.Len())
 	for _, stop := range e.data.Stops {
+		parentLen := uint8(0)
+		if stop.ParentStation != "" {
+			parentLen = uint8(len(stop.ParentStation))
+		}
+
 		enc := &EncodedStop{
-			StopIDToken:  e.stringTable.Tokenize(stop.StopId),
+			StopIDLen:    uint16(len(stop.StopId)),
 			NameToken:    e.stringTable.Tokenize(stop.Name),
 			Lat:          float32(stop.Lat),
 			Lon:          float32(stop.Lon),
@@ -260,17 +325,21 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 			ZoneToken:    e.stringTable.Tokenize(stop.ZoneId),
 			URLToken:     e.stringTable.Tokenize(stop.Url),
 			LocationType: uint8(stop.LocationType),
-			ParentToken:  e.stringTable.Tokenize(stop.ParentStation),
+			ParentIDLen:  parentLen,
 		}
 		binary.Write(buf, binary.LittleEndian, enc)
+		buf.WriteString(stop.StopId)
+		if parentLen > 0 {
+			buf.WriteString(stop.ParentStation)
+		}
 	}
 	header.StopsCount = uint32(len(e.data.Stops))
 
 	header.RoutesOff = uint32(buf.Len())
 	for _, route := range e.data.Routes {
 		enc := &EncodedRoute{
-			RouteIDToken:   e.stringTable.Tokenize(route.RouteId),
-			AgencyIDToken:  e.stringTable.Tokenize(route.AgencyId),
+			RouteIDLen:     uint16(len(route.RouteId)),
+			AgencyIDLen:    uint16(len(route.AgencyId)),
 			ShortNameToken: e.stringTable.Tokenize(route.ShortName),
 			LongNameToken:  e.stringTable.Tokenize(route.LongName),
 			DescToken:      e.stringTable.Tokenize(route.Desc),
@@ -281,6 +350,8 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 			SortOrder:      route.SortOrder,
 		}
 		binary.Write(buf, binary.LittleEndian, enc)
+		buf.WriteString(route.RouteId)
+		buf.WriteString(route.AgencyId)
 	}
 	header.RoutesCount = uint32(len(e.data.Routes))
 
@@ -292,10 +363,12 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 		}
 		binary.Write(buf, binary.LittleEndian, enc)
 
-		for _, token := range pattern.StopIDTokens {
-			binary.Write(buf, binary.LittleEndian, token)
+		// Write stop indices (not tokens)
+		for _, idx := range pattern.StopIDTokens {
+			binary.Write(buf, binary.LittleEndian, idx)
 		}
 
+		// Write delta times
 		for _, delta := range pattern.DeltaTimes {
 			binary.Write(buf, binary.LittleEndian, delta)
 		}
@@ -305,14 +378,12 @@ func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 	header.SchedulesOff = uint32(buf.Len())
 	for _, schedule := range e.schedules {
 		enc := &EncodedSchedule{
-			PatternID:            schedule.PatternID,
-			TripIDToken:          schedule.TripIDToken,
-			ServiceIDToken:       schedule.ServiceIDToken,
-			HeadsignToken:        schedule.HeadsignToken,
-			FirstStopDepartTime:  schedule.FirstStopDepartTime,
-			RouteIDToken:         schedule.RouteIDToken,
-			DirectionID:          schedule.DirectionID,
-			WheelchairAccessible: schedule.WheelchairAccessible,
+			PatternID:           schedule.PatternID,
+			ServiceIndex:        schedule.ServiceIndex,
+			RouteIndex:          schedule.RouteIndex,
+			HeadsignToken:       schedule.HeadsignToken,
+			FirstStopDepartTime: schedule.FirstStopDepartTime,
+			Flags:               schedule.Flags,
 		}
 		binary.Write(buf, binary.LittleEndian, enc)
 	}

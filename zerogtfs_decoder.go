@@ -128,8 +128,14 @@ func readEncodedAgencies(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) erro
 			return err
 		}
 
+		// Read AgencyID string
+		agencyIDBytes := make([]byte, enc.AgencyIDLen)
+		if _, err := reader.Read(agencyIDBytes); err != nil {
+			return err
+		}
+
 		agency := &TransitAgency{
-			AgencyID: result.StringTable.Lookup(enc.AgencyIDToken),
+			AgencyID: string(agencyIDBytes),
 			Name:     result.StringTable.Lookup(enc.NameToken),
 			URL:      result.StringTable.Lookup(enc.URLToken),
 			Timezone: result.StringTable.Lookup(enc.TimezoneToken),
@@ -158,8 +164,24 @@ func readEncodedStops(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) error {
 			return err
 		}
 
+		// Read StopID string
+		stopIDBytes := make([]byte, enc.StopIDLen)
+		if _, err := reader.Read(stopIDBytes); err != nil {
+			return err
+		}
+
+		// Read ParentStation ID string (if exists)
+		parentStation := ""
+		if enc.ParentIDLen > 0 {
+			parentBytes := make([]byte, enc.ParentIDLen)
+			if _, err := reader.Read(parentBytes); err != nil {
+				return err
+			}
+			parentStation = string(parentBytes)
+		}
+
 		stop := &TransitStop{
-			StopID:        result.StringTable.Lookup(enc.StopIDToken),
+			StopID:        string(stopIDBytes),
 			Name:          result.StringTable.Lookup(enc.NameToken),
 			Lat:           float64(enc.Lat),
 			Lon:           float64(enc.Lon),
@@ -168,7 +190,7 @@ func readEncodedStops(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) error {
 			ZoneID:        result.StringTable.Lookup(enc.ZoneToken),
 			URL:           result.StringTable.Lookup(enc.URLToken),
 			LocationType:  int(enc.LocationType),
-			ParentStation: result.StringTable.Lookup(enc.ParentToken),
+			ParentStation: parentStation,
 		}
 		result.Stops[i] = stop
 		result.StopIndex[stop.StopID] = stop
@@ -191,9 +213,21 @@ func readEncodedRoutes(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) error 
 			return err
 		}
 
+		// Read RouteID string
+		routeIDBytes := make([]byte, enc.RouteIDLen)
+		if _, err := reader.Read(routeIDBytes); err != nil {
+			return err
+		}
+
+		// Read AgencyID string
+		agencyIDBytes := make([]byte, enc.AgencyIDLen)
+		if _, err := reader.Read(agencyIDBytes); err != nil {
+			return err
+		}
+
 		route := &TransitRoute{
-			RouteID:   result.StringTable.Lookup(enc.RouteIDToken),
-			AgencyID:  result.StringTable.Lookup(enc.AgencyIDToken),
+			RouteID:   string(routeIDBytes),
+			AgencyID:  string(agencyIDBytes),
 			ShortName: result.StringTable.Lookup(enc.ShortNameToken),
 			LongName:  result.StringTable.Lookup(enc.LongNameToken),
 			Desc:      result.StringTable.Lookup(enc.DescToken),
@@ -269,14 +303,12 @@ func readEncodedSchedules(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) err
 		}
 
 		schedule := &Schedule{
-			PatternID:            enc.PatternID,
-			TripIDToken:          enc.TripIDToken,
-			ServiceIDToken:       enc.ServiceIDToken,
-			HeadsignToken:        enc.HeadsignToken,
-			FirstStopDepartTime:  enc.FirstStopDepartTime,
-			RouteIDToken:         enc.RouteIDToken,
-			DirectionID:          enc.DirectionID,
-			WheelchairAccessible: enc.WheelchairAccessible,
+			PatternID:           enc.PatternID,
+			ServiceIndex:        enc.ServiceIndex,
+			RouteIndex:          enc.RouteIndex,
+			HeadsignToken:       enc.HeadsignToken,
+			FirstStopDepartTime: enc.FirstStopDepartTime,
+			Flags:               enc.Flags,
 		}
 		result.Schedules[i] = schedule
 	}
@@ -284,18 +316,13 @@ func readEncodedSchedules(reader io.ReadSeeker, result *DecodedZeroGTFSFeed) err
 	return nil
 }
 
-func (d *DecodedZeroGTFSFeed) GetStopsByTrip(tripIDToken uint16) ([]TripStopInfo, error) {
+func (d *DecodedZeroGTFSFeed) GetStopsByTrip(tripIndex uint32) ([]TripStopInfo, error) {
+	// Get schedule by trip index
+	if tripIndex >= uint32(len(d.Schedules)) {
+		return nil, fmt.Errorf("invalid trip index %d", tripIndex)
+	}
 
-	var schedule *Schedule
-	for _, s := range d.Schedules {
-		if s.TripIDToken == tripIDToken {
-			schedule = s
-			break
-		}
-	}
-	if schedule == nil {
-		return nil, fmt.Errorf("schedule not found for trip token %d", tripIDToken)
-	}
+	schedule := d.Schedules[tripIndex]
 
 	if schedule.PatternID >= uint32(len(d.Patterns)) {
 		return nil, fmt.Errorf("invalid pattern ID %d", schedule.PatternID)
@@ -306,8 +333,12 @@ func (d *DecodedZeroGTFSFeed) GetStopsByTrip(tripIDToken uint16) ([]TripStopInfo
 
 	result := make([]TripStopInfo, pattern.StopCount)
 	for i := 0; i < int(pattern.StopCount); i++ {
-		stopToken := pattern.StopIDTokens[i]
-		stopID := d.StringTable.Lookup(stopToken)
+		// StopIDTokens now contains stop indices (not tokens)
+		stopIndex := pattern.StopIDTokens[i]
+		if stopIndex >= uint16(len(d.Stops)) {
+			return nil, fmt.Errorf("invalid stop index %d", stopIndex)
+		}
+		stop := d.Stops[stopIndex]
 
 		var arrivalTime uint32
 		var departTime uint32
@@ -321,7 +352,7 @@ func (d *DecodedZeroGTFSFeed) GetStopsByTrip(tripIDToken uint16) ([]TripStopInfo
 		}
 
 		result[i] = TripStopInfo{
-			StopID:      stopID,
+			StopID:      stop.StopID,
 			ArrivalTime: arrivalTime,
 			DepartTime:  departTime,
 			Sequence:    uint32(i),
