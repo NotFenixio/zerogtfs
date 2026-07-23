@@ -27,45 +27,53 @@ type ZeroGTFSFileHeader struct {
 }
 
 // EncodedStop is the binary layout for a transit stop
+// Note: StopID is stored as a length-prefixed string (not tokenized) to avoid string table overflow
 type EncodedStop struct {
-	StopIDToken  uint16  // Token ID for stop_id in string table
-	NameToken    uint16  // Token ID for stop name
+	StopIDLen    uint16  // Length of StopID string
+	NameToken    uint16  // Token ID for stop name (display string)
 	Lat          float32 // Latitude (32-bit float for compression)
 	Lon          float32 // Longitude (32-bit float)
-	CodeToken    uint16  // Token for stop code (optional)
-	DescToken    uint16  // Token for description (optional)
-	ZoneToken    uint16  // Token for zone_id (optional)
-	URLToken     uint16  // Token for URL (optional)
+	CodeToken    uint16  // Token for stop code (optional display string)
+	DescToken    uint16  // Token for description (optional display string)
+	ZoneToken    uint16  // Token for zone_id (optional display string)
+	URLToken     uint16  // Token for URL (optional display string)
 	LocationType uint8   // 0 = stop, 1 = station
-	ParentToken  uint16  // Token for parent_station (optional)
+	ParentIDLen  uint8   // Length of ParentStation ID (0 if none)
 	Padding      uint8   // Padding for alignment
+	// Followed by StopIDLen bytes of StopID string
+	// Followed by ParentIDLen bytes of ParentStation ID string (if ParentIDLen > 0)
 }
 
 // EncodedAgency is the binary layout for a transit agency
+// Note: AgencyID is stored as a length-prefixed string (not tokenized) to avoid string table overflow
 type EncodedAgency struct {
-	AgencyIDToken uint16 // Token for agency_id
-	NameToken     uint16 // Token for name
-	URLToken      uint16 // Token for URL (optional)
-	TimezoneToken uint16 // Token for timezone
-	LangToken     uint16 // Token for language code (optional)
-	PhoneToken    uint16 // Token for phone (optional)
-	FareURLToken  uint16 // Token for fare_url (optional)
-	Padding       uint16 // Padding for alignment
+	AgencyIDLen   uint16 // Length of AgencyID string
+	NameToken     uint16 // Token for name (display string)
+	URLToken      uint16 // Token for URL (optional display string)
+	TimezoneToken uint16 // Token for timezone (display string)
+	LangToken     uint16 // Token for language code (optional display string)
+	PhoneToken    uint16 // Token for phone (display string)
+	FareURLToken  uint16 // Token for fare_url (optional display string)
+	Padding       uint8  // Padding for alignment
+	// Followed by AgencyIDLen bytes of AgencyID string
 }
 
 // EncodedRoute is the binary layout for a transit route
+// Note: RouteID and AgencyID are stored as length-prefixed strings (not tokenized) to avoid string table overflow
 type EncodedRoute struct {
-	RouteIDToken   uint16 // Token for route_id
-	AgencyIDToken  uint16 // Token for agency_id
-	ShortNameToken uint16 // Token for short_name
-	LongNameToken  uint16 // Token for long_name
-	DescToken      uint16 // Token for description (optional)
+	RouteIDLen     uint16 // Length of RouteID string
+	AgencyIDLen    uint16 // Length of AgencyID string
+	ShortNameToken uint16 // Token for short_name (display string)
+	LongNameToken  uint16 // Token for long_name (display string)
+	DescToken      uint16 // Token for description (optional display string)
 	Type           uint8  // Route type (0-7)
 	Padding1       uint8  // Padding
-	URLToken       uint16 // Token for URL (optional)
+	URLToken       uint16 // Token for URL (optional display string)
 	Color          uint32 // RRGGBB color
 	TextColor      uint32 // RRGGBB text color
 	SortOrder      int32  // Sort order
+	// Followed by RouteIDLen bytes of RouteID string
+	// Followed by AgencyIDLen bytes of AgencyID string
 }
 
 // TripPattern represents a unique sequence of stops with time deltas
@@ -88,26 +96,23 @@ type EncodedTripPattern struct {
 
 // Schedule represents a single instance of a trip pattern with a departure time
 type Schedule struct {
-	PatternID            uint32 // Reference to trip pattern
-	TripIDToken          uint16 // Token for trip_id
-	ServiceIDToken       uint16 // Token for service_id
-	HeadsignToken        uint16 // Token for headsign (optional)
-	FirstStopDepartTime  uint32 // Absolute seconds past midnight for first stop departure
-	RouteIDToken         uint16 // Token for route_id
-	DirectionID          uint8  // 0 or 1
-	WheelchairAccessible uint8  // 0, 1, or empty
+	PatternID           uint32 // Reference to trip pattern
+	ServiceIndex        uint16 // 0-based index into services array
+	RouteIndex          uint16 // 0-based index into routes array
+	HeadsignToken       uint16 // Token for headsign (display string only)
+	FirstStopDepartTime uint32 // Absolute seconds past midnight for first stop departure
+	Flags               uint8  // Packed bitflags: DirectionID (1 bit) | WheelchairAccessible (2 bits) | reserved
 }
 
 // EncodedSchedule is the binary layout for a schedule
 type EncodedSchedule struct {
-	PatternID            uint32 // Pattern ID
-	TripIDToken          uint16 // Token for trip_id
-	ServiceIDToken       uint16 // Token for service_id
-	HeadsignToken        uint16 // Token for headsign
-	FirstStopDepartTime  uint32 // Departure time for first stop
-	RouteIDToken         uint16 // Token for route_id
-	DirectionID          uint8  // Direction (0 or 1)
-	WheelchairAccessible uint8  // Wheelchair accessibility
+	PatternID           uint32 // Pattern ID
+	ServiceIndex        uint16 // 0-based index into services array
+	RouteIndex          uint16 // 0-based index into routes array
+	HeadsignToken       uint16 // Token for headsign (display string only)
+	FirstStopDepartTime uint32 // Departure time for first stop
+	Flags               uint8  // Packed bitflags: DirectionID (1 bit) | WheelchairAccessible (2 bits) | reserved
+	Padding             uint8  // Padding for alignment
 }
 
 // StringTable maps strings to token IDs and vice versa
@@ -267,3 +272,25 @@ func DeltaDecodeTimestamps(deltas []uint16) []uint32 {
 // The Magic constant for zeroGTFS files
 const ZeroGTFSMagic uint32 = 0x5a455250 // "ZRPT" in ASCII (little-endian)
 const ZeroGTFSVersion uint16 = 1
+
+// PackScheduleFlags packs DirectionID (1 bit) and WheelchairAccessible (2 bits) into a single byte
+// Bit layout: [reserved(5 bits) | WheelchairAccessible(2 bits) | DirectionID(1 bit)]
+func PackScheduleFlags(directionID uint8, wheelchairAccessible uint8) uint8 {
+	flags := uint8(0)
+	flags |= (directionID & 0x01)                 // DirectionID in bit 0
+	flags |= ((wheelchairAccessible & 0x03) << 1) // WheelchairAccessible in bits 1-2
+	return flags
+}
+
+// UnpackScheduleFlags extracts DirectionID and WheelchairAccessible from packed flags
+func UnpackScheduleFlags(flags uint8) (directionID uint8, wheelchairAccessible uint8) {
+	directionID = flags & 0x01                 // Extract bit 0
+	wheelchairAccessible = (flags >> 1) & 0x03 // Extract bits 1-2
+	return
+}
+
+// UnpackStopIndexFromToken extracts the stop index from a uint16 token
+// Note: In the refactored format, stop tokens are actually stop indices
+func UnpackStopIndex(token uint16) uint16 {
+	return token
+}
