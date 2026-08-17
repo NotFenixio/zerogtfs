@@ -6,6 +6,8 @@ package main
 import "C"
 import (
 	"fmt"
+	"os"
+	"strings"
 )
 
 //export GenerateZeroGTFS
