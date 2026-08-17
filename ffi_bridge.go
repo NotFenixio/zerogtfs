@@ -35,5 +35,19 @@ func GenerateZeroGTFS(cSource *C.char, cOutput *C.char) C.int {
 	return 1 // success!
 }
 
+func loadGTFSData(source string) (*MockGTFSData, error) {
+
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		zipPath := "gtfs_feed.zip"
+		if err := DownloadFile(source, zipPath); err != nil {
+			return nil, err
+		}
+		defer os.Remove(zipPath)
+		return ReadGTFSFromZip(zipPath)
+	}
+
+	return ReadGTFSFromZip(source)
+}
+
 // required to compile in shared c mode thing
 func main() {}
