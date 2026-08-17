@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'version name'
+        required: true
+        default: 'v1.0.0'
+
 
 jobs:
   build:
