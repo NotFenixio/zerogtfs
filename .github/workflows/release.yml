@@ -40,7 +40,7 @@ jobs:
       - name: Build Shared Library
         shell: bash
         run: |
-          go build -buildmode=c-shared -o ${{ matrix.output_name }} ffi_bridge.go $(ls *.go | grep -v main.go)
+          go build -buildmode=c-shared -o ${{ matrix.output_name }} $(ls *.go | grep -v main.go)
 
 
       # save our files
