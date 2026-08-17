@@ -79,6 +79,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
           files: |
             final-assets/libzerogtfs.so
             final-assets/libzerogtfs.dylib
