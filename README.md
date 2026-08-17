@@ -13,7 +13,8 @@ This is designed to be used as a shared lib, so you can use it with FFI with you
   - Windows: libzerogtfs.dll
   - Linux/Unix-like: libzerogtfs.so
   - To make C shut up about warnings, you can grab the libzerogtfs.h file too, and include it in the same level as your libzerogtfs.[ext]
-3. Load the GenerateZeroGTFS function using FFI It takes two parameters: origin, which can be a path or URL, and output, where the .zgts file will be saved.
+3. Load the GenerateZeroGTFS function using FFI. It takes two parameters: origin, which can be a path or URL, and output, where the .zgts file will be saved.
+
 Example using Deno:
 ```ts
 const ext = Deno.build.os === "windows" ? "dll" : Deno.build.os === "darwin" ? "dylib" : "so";
