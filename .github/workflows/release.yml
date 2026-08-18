@@ -11,10 +11,9 @@ on:
         required: true
         default: 'v1.0.0'
 
-
 jobs:
-  build:
-    name: Build for ${{ matrix.os }}
+  build-desktop:
+    name: Build Desktop for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -30,20 +29,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24.13'
           cache: true
 
-      # compile
       - name: Build Shared Library
         shell: bash
         run: |
           go build -buildmode=c-shared -o ${{ matrix.output_name }} $(ls *.go | grep -v main.go)
 
-
-      # save our files
+       Zion Upload Artifacts
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -52,9 +49,47 @@ jobs:
             ${{ matrix.output_name }}
             libzerogtfs.h
 
+  build-mobile:
+    name: Build Mobile Mobile Bindings
+    runs-on: macos-latest # Required for building iOS frameworks
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.13'
+          cache: true
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        # This setup registers the NDK env variables that gomobile detects automatically
+
+      - name: Install Gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+      - name: Build Android AAR
+        run: |
+          gomobile bind -target=android -o zerogtfs.aar .
+
+      - name: Build iOS XCFramework
+        run: |
+          gomobile bind -target=ios -o Zerogtfs.xcframework .
+
+      - name: Upload Mobile Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-mobile
+          path: |
+            zerogtfs.aar
+            Zerogtfs.xcframework
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build-desktop, build-mobile]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,7 +98,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # download our prev artifacts
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -72,10 +106,14 @@ jobs:
       - name: Organize files
         run: |
           mkdir -p final-assets
-          find artifacts -type f -exec cp {} final-assets/ \;
+          # Find and copy desktop binaries and headers
+          find artifacts -type f -name "libzerogtfs.*" -exec cp {} final-assets/ \;
+          find artifacts -type f -name "zerogtfs.aar" -exec cp {} final-assets/ \;
+          # Zip the iOS directory structure framework so it can be uploaded cleanly
+          cd artifacts/build-mobile/ && zip -r ../../final-assets/Zerogtfs.xcframework.zip Zerogtfs.xcframework/
+          cd ../../
           ls -l final-assets/
 
-      # publish
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -85,6 +123,8 @@ jobs:
             final-assets/libzerogtfs.dylib
             final-assets/libzerogtfs.dll
             final-assets/libzerogtfs.h
+            final-assets/zerogtfs.aar
+            final-assets/Zerogtfs.xcframework.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
