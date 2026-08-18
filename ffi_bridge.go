@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	lib "zerogtfs/lib"
 )
 
 var (
