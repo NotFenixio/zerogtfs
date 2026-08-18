@@ -1,9 +1,8 @@
-package main
+package zerogtfs
 
 import (
 	"fmt"
 	"os"
-	lib "zerogtfs/lib"
 )
 
 // PerformRoundtrip performs a complete roundtrip: load GTFS -> encode -> decode -> export
@@ -14,7 +13,7 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 
 	// Step 1: Load GTFS data
 	fmt.Printf("Step 1: Loading GTFS data from: %s\n", source)
-	gtfsData, err := loadGTFSData(source)
+	gtfsData, err := LoadGTFSData(source)
 	if err != nil {
 		return fmt.Errorf("failed to load GTFS data: %w", err)
 	}
@@ -25,12 +24,12 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 	fmt.Printf("  ✓ Trips: %d\n", len(gtfsData.Trips))
 	fmt.Printf("  ✓ Stop Times: %d\n", len(gtfsData.StopTimes))
 
-	originalSize := lib.EstimateCSVSize(gtfsData)
+	originalSize := EstimateCSVSize(gtfsData)
 	fmt.Printf("  Estimated original CSV size: ~%d bytes\n", originalSize)
 
 	// Step 2: Encode to zeroGTFS binary format
 	fmt.Println("\nStep 2: Encoding to zeroGTFS binary format...")
-	encoder := lib.NewZeroGTFSEncoder(gtfsData)
+	encoder := NewZeroGTFSEncoder(gtfsData)
 	if err := encoder.Encode(encodedOutput); err != nil {
 		return fmt.Errorf("failed to encode: %w", err)
 	}
@@ -48,7 +47,7 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 
 	// Step 3: Decode from zeroGTFS binary format
 	fmt.Println("\nStep 3: Decoding from zeroGTFS binary format...")
-	decodedFeed, err := lib.DecodeZeroGTFSFromFile(encodedOutput)
+	decodedFeed, err := DecodeZeroGTFSFromFile(encodedOutput)
 	if err != nil {
 		return fmt.Errorf("failed to decode: %w", err)
 	}
@@ -84,7 +83,7 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 
 	// Step 5: Export decoded data back to GTFS ZIP format
 	fmt.Printf("\nStep 5: Exporting decoded data to GTFS format...\n")
-	if err := lib.ExportGTFSZip(decodedFeed, decodedOutput); err != nil {
+	if err := ExportGTFSZip(decodedFeed, decodedOutput); err != nil {
 		return fmt.Errorf("failed to export to GTFS: %w", err)
 	}
 
@@ -105,4 +104,11 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 	fmt.Println("  ✓ Roundtrip complete!")
 
 	return nil
+}
+
+func LoadGTFSData(source string) (*MockGTFSData, error) {
+	if source != "" && source != "mock" {
+		return ReadGTFSFromZip(source)
+	}
+	return nil, nil
 }

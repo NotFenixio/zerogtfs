@@ -1,14 +1,16 @@
 name: Build and release Go shared libraries
+
 on:
   push:
     tags:
-      - v*
+      - "v*"
   workflow_dispatch:
     inputs:
       version_tag:
-        description: version name
+        description: "version name"
         required: true
-        default: v1.0.0
+        default: "v1.0.0"
+
 jobs:
   build-desktop:
     name: Build Desktop for ${{ matrix.os }}
@@ -22,50 +24,62 @@ jobs:
             output_name: libzerogtfs.dylib
           - os: windows-latest
             output_name: libzerogtfs.dll
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24.13
+          go-version: "1.24.13"
           cache: true
+
       - name: Build Shared Library
         shell: bash
-        run: >
-          go build -buildmode=c-shared -o ${{ matrix.output_name }} $(ls *.go | grep
-          -v main.go)
+        # Compiles from your root directory containing package main
+        run: |
+          go build -buildmode=c-shared -o ${{ matrix.output_name }} main.go
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
           path: |
             ${{ matrix.output_name }}
-            libzerogtfs.h
+
   build-mobile:
     name: Build Mobile Bindings
     runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24.13
+          go-version: "1.24.13"
           cache: true
+
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
+
       - name: Install and Configure Gomobile
         run: |
           go get -tool golang.org/x/mobile/cmd/gobind
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
+
+      # FIXED: Targets the library folder path "./mobile" instead of the root "." main package.
+      # FIXED: Uses "-androidapi 21" to fulfill modern NDK compiler requirements.
       - name: Build Android AAR
         run: |
-          gomobile bind -target=android -androidapi 21 -o zerogtfs.aar .
+          gomobile bind -target=android -androidapi 21 -o zerogtfs.aar ./mobile
+
       - name: Build iOS XCFramework
         run: |
-          gomobile bind -target=ios -o Zerogtfs.xcframework .
+          gomobile bind -target=ios -o Zerogtfs.xcframework ./mobile
+
       - name: Upload Mobile Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -73,34 +87,32 @@ jobs:
           path: |
             zerogtfs.aar
             Zerogtfs.xcframework
+
   release:
     name: Create GitHub Release
-    needs:
-      - build-desktop
-      - build-mobile
+    needs: [build-desktop, build-mobile]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
       - name: Organize files
-        run: >
+        run: |
           mkdir -p final-assets
-
           find artifacts -type f -name "libzerogtfs.*" -exec cp {} final-assets/ \;
-
           find artifacts -type f -name "zerogtfs.aar" -exec cp {} final-assets/ \;
-
           cd artifacts/build-mobile/ && zip -r ../../final-assets/Zerogtfs.xcframework.zip Zerogtfs.xcframework/
-
           cd ../../
-
           ls -l final-assets/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -109,7 +121,6 @@ jobs:
             final-assets/libzerogtfs.so
             final-assets/libzerogtfs.dylib
             final-assets/libzerogtfs.dll
-            final-assets/libzerogtfs.h
             final-assets/zerogtfs.aar
             final-assets/Zerogtfs.xcframework.zip
           generate_release_notes: true

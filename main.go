@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	lib "zerogtfs/lib"
 )
 
 func main() {
@@ -47,7 +48,7 @@ func main() {
 		}
 		if gtfsSource == "" {
 			fmt.Println("Step 0: No source specified, creating mock GTFS data for roundtrip...")
-			mockData := NewMockData()
+			mockData := lib.NewMockData()
 			mockFile := "mock_gtfs.zip"
 			defer os.Remove(mockFile)
 			if err := createMockGTFSZip(mockData, mockFile); err != nil {
@@ -55,7 +56,7 @@ func main() {
 			}
 			gtfsSource = mockFile
 		}
-		if err := PerformRoundtrip(gtfsSource, encodedOut, decodedOut); err != nil {
+		if err := lib.PerformRoundtrip(gtfsSource, encodedOut, decodedOut); err != nil {
 			log.Fatalf("Roundtrip failed: %v", err)
 		}
 		fmt.Println("\n✓ Roundtrip completed successfully!")
@@ -65,18 +66,18 @@ func main() {
 	testFile := encodedOut
 	_ = os.Remove(testFile)
 
-	var mockData *MockGTFSData
+	var mockData *lib.MockGTFSData
 	var err error
 
 	if gtfsSource != "" {
 		fmt.Printf("Step 1: Loading GTFS data from: %s\n", gtfsSource)
-		mockData, err = loadGTFSData(gtfsSource)
+		mockData, err = lib.ReadGTFSFromZip(gtfsSource)
 		if err != nil {
 			log.Fatalf("Failed to load GTFS data: %v", err)
 		}
 	} else {
 		fmt.Println("Step 1: Creating mock GTFS data...")
-		mockData = NewMockData()
+		mockData = lib.NewMockData()
 	}
 	fmt.Printf("  - Agencies: %d\n", len(mockData.Agencies))
 	fmt.Printf("  - Stops: %d\n", len(mockData.Stops))
@@ -84,11 +85,11 @@ func main() {
 	fmt.Printf("  - Trips: %d\n", len(mockData.Trips))
 	fmt.Printf("  - Stop Times: %d\n", len(mockData.StopTimes))
 
-	originalSize := EstimateCSVSize(mockData)
+	originalSize := lib.EstimateCSVSize(mockData)
 	fmt.Printf("  Estimated original CSV size: ~%d bytes\n", originalSize)
 
 	fmt.Println("\nStep 2: Encoding to binary zeroGTFS format...")
-	encoder := NewZeroGTFSEncoder(mockData)
+	encoder := lib.NewZeroGTFSEncoder(mockData)
 	if err := encoder.Encode(testFile); err != nil {
 		log.Fatalf("Failed to encode: %v", err)
 	}
@@ -107,7 +108,7 @@ func main() {
 	fmt.Printf("  Space saved: %.1f%%\n", compression)
 
 	fmt.Println("\nStep 3: Decoding from binary zeroGTFS format...")
-	decoded, err := DecodeZeroGTFSFromFile(testFile)
+	decoded, err := lib.DecodeZeroGTFSFromFile(testFile)
 	if err != nil {
 		log.Fatalf("Failed to decode: %v", err)
 	}
@@ -184,7 +185,7 @@ func main() {
 	fmt.Println("\n✓ Test completed successfully!")
 }
 
-func exportSampleJSON(decoded *DecodedZeroGTFSFeed) {
+func exportSampleJSON(decoded *lib.DecodedZeroGTFSFeed) {
 	type SampleExport struct {
 		Agencies []map[string]interface{} `json:"agencies"`
 		Stops    []map[string]interface{} `json:"stops"`
@@ -260,21 +261,20 @@ func exportSampleJSON(decoded *DecodedZeroGTFSFeed) {
 	fmt.Println("  ✓ Exported to sample_output.json")
 }
 
-func loadGTFSData(source string) (*MockGTFSData, error) {
-
+func loadGTFSData(source string) (*lib.MockGTFSData, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		zipPath := "gtfs_feed.zip"
-		if err := DownloadFile(source, zipPath); err != nil {
+		if err := lib.DownloadFile(source, zipPath); err != nil {
 			return nil, err
 		}
 		defer os.Remove(zipPath)
-		return ReadGTFSFromZip(zipPath)
+		return lib.ReadGTFSFromZip(zipPath)
 	}
 
-	return ReadGTFSFromZip(source)
+	return lib.ReadGTFSFromZip(source)
 }
 
-func createMockGTFSZip(data *MockGTFSData, outputPath string) error {
+func createMockGTFSZip(data *lib.MockGTFSData, outputPath string) error {
 	zipFile, err := os.Create(outputPath)
 	if err != nil {
 		return err
