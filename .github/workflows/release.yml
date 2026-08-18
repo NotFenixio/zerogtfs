@@ -62,7 +62,7 @@ jobs:
           gomobile init
       - name: Build Android AAR
         run: |
-          gomobile bind -target=android -o zerogtfs.aar .
+          gomobile bind -target=android -androidapi 21 -o zerogtfs.aar .
       - name: Build iOS XCFramework
         run: |
           gomobile bind -target=ios -o Zerogtfs.xcframework .
