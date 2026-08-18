@@ -14,7 +14,7 @@ func PerformRoundtrip(source, encodedOutput, decodedOutput string) error {
 
 	// Step 1: Load GTFS data
 	fmt.Printf("Step 1: Loading GTFS data from: %s\n", source)
-	gtfsData, err := loadGTFSData(source)
+	gtfsData, err := lib.LoadGTFSData(source)
 	if err != nil {
 		return fmt.Errorf("failed to load GTFS data: %w", err)
 	}
