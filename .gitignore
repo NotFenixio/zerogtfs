@@ -2,3 +2,7 @@ zerogtfs
 zerogtfs.exe
 zerogatfs.exe
 sample_output.json
+
+cpu.prof
+mem.prof
+zerogtfs.test.exe

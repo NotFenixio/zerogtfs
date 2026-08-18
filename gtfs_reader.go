@@ -98,6 +98,7 @@ func readAgencies(agenciesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read agencies header: %w", err)
@@ -156,6 +157,7 @@ func readStops(stopsFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stops header: %w", err)
@@ -232,6 +234,7 @@ func readRoutes(routesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read routes header: %w", err)
@@ -318,6 +321,7 @@ func readTrips(tripsFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read trips header: %w", err)
@@ -377,6 +381,18 @@ func readTrips(tripsFile *zip.File, data *MockGTFSData) error {
 	return nil
 }
 
+func fastTimeToSeconds(s string) uint32 {
+	if len(s) < 8 {
+		return 0
+	}
+
+	h := uint32(s[0]-'0')*10 + uint32(s[1]-'0')
+	m := uint32(s[3]-'0')*10 + uint32(s[4]-'0')
+	sec := uint32(s[6]-'0')*10 + uint32(s[7]-'0')
+
+	return h*3600 + m*60 + sec
+}
+
 func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 	rc, err := stopTimesFile.Open()
 	if err != nil {
@@ -385,14 +401,28 @@ func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stop_times header: %w", err)
 	}
 
-	headerMap := make(map[string]int)
+	// Mapeamos los índices UNA SOLA VEZ fuera del bucle.
+	// Inicializamos con -1 para saber si la columna existe.
+	tripIdIdx, stopIdIdx := -1, -1
+	stopSeqIdx, arrivalIdx, departureIdx := -1, -1, -1
+	pickupIdx, dropOffIdx := -1, -1
+
 	for i, h := range header {
-		headerMap[h] = i
+		switch h {
+		case "trip_id": tripIdIdx = i
+		case "stop_id": stopIdIdx = i
+		case "stop_sequence": stopSeqIdx = i
+		case "arrival_time": arrivalIdx = i
+		case "departure_time": departureIdx = i
+		case "pickup_type": pickupIdx = i
+		case "drop_off_type": dropOffIdx = i
+		}
 	}
 
 	for {
@@ -404,34 +434,42 @@ func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 			return fmt.Errorf("error reading stop_times record: %w", err)
 		}
 
+		// Evitamos alojar punteros individuales si es posible, 
+		// pero manteniendo tu estructura actual:
 		stopTime := &MockStopTime{}
 
-		if idx, ok := headerMap["trip_id"]; ok && idx < len(record) {
-			stopTime.TripId = record[idx]
+		if tripIdIdx != -1 && tripIdIdx < len(record) {
+			stopTime.TripId = record[tripIdIdx]
 		}
-		if idx, ok := headerMap["stop_id"]; ok && idx < len(record) {
-			stopTime.StopId = record[idx]
+		if stopIdIdx != -1 && stopIdIdx < len(record) {
+			stopTime.StopId = record[stopIdIdx]
 		}
-		if idx, ok := headerMap["stop_sequence"]; ok && idx < len(record) {
-			seq, err := strconv.ParseInt(record[idx], 10, 32)
+		if stopSeqIdx != -1 && stopSeqIdx < len(record) {
+			seq, err := strconv.ParseUint(record[stopSeqIdx], 10, 32)
 			if err == nil {
 				stopTime.StopSequence = uint32(seq)
 			}
 		}
-		if idx, ok := headerMap["arrival_time"]; ok && idx < len(record) && record[idx] != "" {
-			stopTime.ArrivalTime = TimeToSeconds(record[idx])
+		if arrivalIdx != -1 && arrivalIdx < len(record) {
+			val := record[arrivalIdx]
+			if val != "" {
+				stopTime.ArrivalTime = fastTimeToSeconds(val)
+			}
 		}
-		if idx, ok := headerMap["departure_time"]; ok && idx < len(record) && record[idx] != "" {
-			stopTime.DepartTime = TimeToSeconds(record[idx])
+		if departureIdx != -1 && departureIdx < len(record) {
+			val := record[departureIdx]
+			if val != "" {
+				stopTime.DepartTime = fastTimeToSeconds(val)
+			}
 		}
-		if idx, ok := headerMap["pickup_type"]; ok && idx < len(record) {
-			pickupType, err := strconv.ParseInt(record[idx], 10, 32)
+		if pickupIdx != -1 && pickupIdx < len(record) {
+			pickupType, err := strconv.ParseInt(record[pickupIdx], 10, 32)
 			if err == nil {
 				stopTime.PickupType = int32(pickupType)
 			}
 		}
-		if idx, ok := headerMap["drop_off_type"]; ok && idx < len(record) {
-			dropOffType, err := strconv.ParseInt(record[idx], 10, 32)
+		if dropOffIdx != -1 && dropOffIdx < len(record) {
+			dropOffType, err := strconv.ParseInt(record[dropOffIdx], 10, 32)
 			if err == nil {
 				stopTime.DropOffType = int32(dropOffType)
 			}

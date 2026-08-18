@@ -7,14 +7,16 @@ import (
 	"log"
 	"os"
 	"sort"
+	"hash/fnv"
+	"strconv"
 )
 
 type ZeroGTFSEncoder struct {
 	data          *MockGTFSData
 	stringTable   *StringTable
-	patterns      map[string]*TripPattern
+	patterns      map[uint64]*TripPattern
 	schedules     []*Schedule
-	patternIndex  map[string]uint32
+	patternIndex  map[uint64]uint32
 	nextPatternID uint32
 
 	// Index maps for converting GTFS IDs to array indices
@@ -28,9 +30,9 @@ func NewZeroGTFSEncoder(data *MockGTFSData) *ZeroGTFSEncoder {
 	return &ZeroGTFSEncoder{
 		data:         data,
 		stringTable:  NewStringTable(),
-		patterns:     make(map[string]*TripPattern),
+		patterns:     make(map[uint64]*TripPattern),
 		schedules:    make([]*Schedule, 0),
-		patternIndex: make(map[string]uint32),
+		patternIndex: make(map[uint64]uint32),
 
 		// Initialize index maps
 		stopIDToIndex:    make(map[string]uint16),
@@ -197,52 +199,59 @@ func (e *ZeroGTFSEncoder) extractTripPatterns() {
 	fmt.Printf("    - Extracted %d unique patterns from %d trips\n", len(e.patterns), len(e.data.Trips))
 }
 
-func (e *ZeroGTFSEncoder) buildPatternSignature(stopList []*MockStopTime) string {
-	sig := ""
+func (e *ZeroGTFSEncoder) buildPatternSignature(stopList []*MockStopTime) uint64 {
+	h := fnv.New64a()
+	var buf [32]byte // Buffer reutilizable para no alocar memoria con strconv
+
 	for i, st := range stopList {
-		sig += st.StopId
+		_, _ = h.Write([]byte(st.StopId))
+		
 		if i < len(stopList)-1 {
 			delta := stopList[i+1].DepartTime - st.DepartTime
-			sig += fmt.Sprintf(":%d", delta)
+			_, _ = h.Write([]byte(":"))
+			
+			// Convertimos el número a bytes sin alocar memoria en el Heap
+			b := strconv.AppendUint(buf[:0], uint64(delta), 10)
+			_, _ = h.Write(b)
 		}
 	}
-	return sig
+	return h.Sum64()
 }
 
 func (e *ZeroGTFSEncoder) buildSchedules() {
 	fmt.Println("    - Building schedules...")
 
-	tripToPattern := make(map[string]string)
+	// Cambiamos el mapa para usar el Hash numérico (uint64) en vez de strings pesados
+	tripToPattern := make(map[string]uint64)
 
+	// OPTIMIZACIÓN CRUCIAL: Agrupamos directamente usando los PUNTEROS existentes.
+	// No crees un objeto nuevo con '&MockStopTime{...}', reutiliza el que ya tienes.
 	tripStopTimes := make(map[string][]*MockStopTime)
 	for _, st := range e.data.StopTimes {
-		tripStopTimes[st.TripId] = append(tripStopTimes[st.TripId], &MockStopTime{
-			StopId:       st.StopId,
-			StopSequence: st.StopSequence,
-			ArrivalTime:  st.ArrivalTime,
-			DepartTime:   st.DepartTime,
-		})
+		tripStopTimes[st.TripId] = append(tripStopTimes[st.TripId], st)
 	}
 
 	for tripID, stopList := range tripStopTimes {
 		sort.Slice(stopList, func(i, j int) bool {
 			return stopList[i].StopSequence < stopList[j].StopSequence
 		})
+		// Ahora devuelve un uint64
 		sig := e.buildPatternSignature(stopList)
 		tripToPattern[tripID] = sig
 	}
 
 	for _, trip := range e.data.Trips {
-		sig, ok := tripToPattern[trip.TripId]
+		hash, ok := tripToPattern[trip.TripId]
 		if !ok {
 			log.Printf("Warning: trip %s has no stop times\n", trip.TripId)
 			continue
 		}
 
-		patternID := e.patternIndex[sig]
+		// NOTA: Recuerda cambiar el tipo de tu mapa 'e.patternIndex' 
+		// para que sea map[uint64]int en lugar de map[string]int
+		patternID := e.patternIndex[hash]
 		stopList := tripStopTimes[trip.TripId]
 
-		// Get indices for service and route
 		serviceIdx, ok := e.serviceIDToIndex[trip.ServiceId]
 		if !ok {
 			log.Printf("Warning: service %s not found in index\n", trip.ServiceId)
@@ -255,7 +264,6 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 			continue
 		}
 
-		// Pack DirectionID and WheelchairAccessible into flags byte
 		wheelchairBit := uint8(0)
 		if trip.WheelchairAccessible == "1" {
 			wheelchairBit = 1
@@ -266,7 +274,7 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 			PatternID:           patternID,
 			ServiceIndex:        serviceIdx,
 			RouteIndex:          routeIdx,
-			HeadsignToken:       e.stringTable.Tokenize(trip.Headsign), // Only display string
+			HeadsignToken:       e.stringTable.Tokenize(trip.Headsign),
 			FirstStopDepartTime: stopList[0].DepartTime,
 			Flags:               flags,
 		}
@@ -275,7 +283,6 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 
 	fmt.Printf("    - Created %d schedule entries\n", len(e.schedules))
 }
-
 func (e *ZeroGTFSEncoder) writeBinaryFile(filename string) error {
 	fmt.Printf("    - Writing binary file: %s\n", filename)
 
