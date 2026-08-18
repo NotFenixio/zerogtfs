@@ -43,7 +43,7 @@ jobs:
             ${{ matrix.output_name }}
             libzerogtfs.h
   build-mobile:
-    name: Build Mobile Mobile Bindings
+    name: Build Mobile Bindings
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -55,8 +55,9 @@ jobs:
           cache: true
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
-      - name: Install Gomobile
+      - name: Install and Configure Gomobile
         run: |
+          go get -tool golang.org/x/mobile/cmd/gobind
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
       - name: Build Android AAR
@@ -91,13 +92,9 @@ jobs:
         run: >
           mkdir -p final-assets
 
-          # Find and copy desktop binaries and headers
-
           find artifacts -type f -name "libzerogtfs.*" -exec cp {} final-assets/ \;
 
           find artifacts -type f -name "zerogtfs.aar" -exec cp {} final-assets/ \;
-
-          # Zip the iOS directory structure framework so it can be uploaded cleanly
 
           cd artifacts/build-mobile/ && zip -r ../../final-assets/Zerogtfs.xcframework.zip Zerogtfs.xcframework/
 
