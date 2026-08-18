@@ -98,7 +98,7 @@ func readAgencies(agenciesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
-reader.ReuseRecord = true
+	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read agencies header: %w", err)
@@ -157,7 +157,7 @@ func readStops(stopsFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
-reader.ReuseRecord = true
+	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stops header: %w", err)
@@ -234,7 +234,7 @@ func readRoutes(routesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
-reader.ReuseRecord = true
+	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read routes header: %w", err)
@@ -321,7 +321,7 @@ func readTrips(tripsFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
-reader.ReuseRecord = true
+	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read trips header: %w", err)
@@ -401,27 +401,32 @@ func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
-reader.ReuseRecord = true
+	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stop_times header: %w", err)
 	}
 
-	// Mapeamos los índices UNA SOLA VEZ fuera del bucle.
-	// Inicializamos con -1 para saber si la columna existe.
 	tripIdIdx, stopIdIdx := -1, -1
 	stopSeqIdx, arrivalIdx, departureIdx := -1, -1, -1
 	pickupIdx, dropOffIdx := -1, -1
 
 	for i, h := range header {
 		switch h {
-		case "trip_id": tripIdIdx = i
-		case "stop_id": stopIdIdx = i
-		case "stop_sequence": stopSeqIdx = i
-		case "arrival_time": arrivalIdx = i
-		case "departure_time": departureIdx = i
-		case "pickup_type": pickupIdx = i
-		case "drop_off_type": dropOffIdx = i
+		case "trip_id":
+			tripIdIdx = i
+		case "stop_id":
+			stopIdIdx = i
+		case "stop_sequence":
+			stopSeqIdx = i
+		case "arrival_time":
+			arrivalIdx = i
+		case "departure_time":
+			departureIdx = i
+		case "pickup_type":
+			pickupIdx = i
+		case "drop_off_type":
+			dropOffIdx = i
 		}
 	}
 
@@ -434,8 +439,6 @@ reader.ReuseRecord = true
 			return fmt.Errorf("error reading stop_times record: %w", err)
 		}
 
-		// Evitamos alojar punteros individuales si es posible, 
-		// pero manteniendo tu estructura actual:
 		stopTime := &MockStopTime{}
 
 		if tripIdIdx != -1 && tripIdIdx < len(record) {

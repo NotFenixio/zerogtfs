@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,11 +16,53 @@ func main() {
 	fmt.Println("====================================================")
 	fmt.Println()
 
-	var gtfsSource string
+	var (
+		gtfsSource    string
+		encodedOut    string
+		decodedOut    string
+		roundtripMode bool
+	)
+
 	flag.StringVar(&gtfsSource, "gtfs", "", "Path to GTFS ZIP file or URL (if not provided, uses mock data)")
+	flag.StringVar(&gtfsSource, "source", "", "Alias for -gtfs: Path to GTFS ZIP file or URL")
+	flag.StringVar(&encodedOut, "encoded", "feed.zgts", "Output file for encoded zeroGTFS binary")
+	flag.StringVar(&decodedOut, "decoded", "", "Output file for decoded GTFS ZIP (enables roundtrip mode)")
+	flag.BoolVar(&roundtripMode, "roundtrip", false, "Enable roundtrip mode (encode then decode and export)")
 	flag.Parse()
 
-	testFile := "feed.zgts"
+	// Handle -source flag as alias for -gtfs
+	if gtfsSource == "" {
+		for _, arg := range os.Args[1:] {
+			if strings.HasPrefix(arg, "-source=") {
+				gtfsSource = strings.TrimPrefix(arg, "-source=")
+				break
+			}
+		}
+	}
+
+	// If decoded output is specified or roundtrip flag is set, enable roundtrip mode
+	if decodedOut != "" || roundtripMode {
+		if decodedOut == "" {
+			decodedOut = "feed_decoded.zip"
+		}
+		if gtfsSource == "" {
+			fmt.Println("Step 0: No source specified, creating mock GTFS data for roundtrip...")
+			mockData := NewMockData()
+			mockFile := "mock_gtfs.zip"
+			defer os.Remove(mockFile)
+			if err := createMockGTFSZip(mockData, mockFile); err != nil {
+				log.Fatalf("Failed to create mock GTFS zip: %v", err)
+			}
+			gtfsSource = mockFile
+		}
+		if err := PerformRoundtrip(gtfsSource, encodedOut, decodedOut); err != nil {
+			log.Fatalf("Roundtrip failed: %v", err)
+		}
+		fmt.Println("\n✓ Roundtrip completed successfully!")
+		return
+	}
+
+	testFile := encodedOut
 	_ = os.Remove(testFile)
 
 	var mockData *MockGTFSData
@@ -228,4 +272,84 @@ func loadGTFSData(source string) (*MockGTFSData, error) {
 	}
 
 	return ReadGTFSFromZip(source)
+}
+
+func createMockGTFSZip(data *MockGTFSData, outputPath string) error {
+	zipFile, err := os.Create(outputPath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	// Write agency.txt
+	if w, err := zipWriter.Create("agency.txt"); err == nil {
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"agency_id", "agency_name", "agency_url", "agency_timezone"})
+		for _, agency := range data.Agencies {
+			writer.Write([]string{agency.AgencyId, agency.Name, agency.Url, agency.Timezone})
+		}
+		writer.Flush()
+	}
+
+	// Write stops.txt
+	if w, err := zipWriter.Create("stops.txt"); err == nil {
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"stop_id", "stop_name", "stop_lat", "stop_lon"})
+		for _, stop := range data.Stops {
+			writer.Write([]string{
+				stop.StopId,
+				stop.Name,
+				fmt.Sprintf("%.6f", stop.Lat),
+				fmt.Sprintf("%.6f", stop.Lon),
+			})
+		}
+		writer.Flush()
+	}
+
+	// Write routes.txt
+	if w, err := zipWriter.Create("routes.txt"); err == nil {
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"route_id", "agency_id", "route_short_name", "route_long_name", "route_type"})
+		for _, route := range data.Routes {
+			writer.Write([]string{
+				route.RouteId,
+				route.AgencyId,
+				route.ShortName,
+				route.LongName,
+				fmt.Sprintf("%d", route.Type),
+			})
+		}
+		writer.Flush()
+	}
+
+	// Write trips.txt
+	if w, err := zipWriter.Create("trips.txt"); err == nil {
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"trip_id", "route_id", "service_id"})
+		for _, trip := range data.Trips {
+			writer.Write([]string{trip.TripId, trip.RouteId, trip.ServiceId})
+		}
+		writer.Flush()
+	}
+
+	// Write stop_times.txt
+	if w, err := zipWriter.Create("stop_times.txt"); err == nil {
+		writer := csv.NewWriter(w)
+		writer.Write([]string{"trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time"})
+		for _, st := range data.StopTimes {
+			writer.Write([]string{
+				st.TripId,
+				fmt.Sprintf("%d", st.StopSequence),
+				st.StopId,
+				fmt.Sprintf("%02d:%02d:%02d", st.ArrivalTime/3600, (st.ArrivalTime%3600)/60, st.ArrivalTime%60),
+				fmt.Sprintf("%02d:%02d:%02d", st.DepartTime/3600, (st.DepartTime%3600)/60, st.DepartTime%60),
+			})
+		}
+		writer.Flush()
+	}
+
+	return nil
 }

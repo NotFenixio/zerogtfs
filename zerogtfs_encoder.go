@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"os"
 	"sort"
-	"hash/fnv"
 	"strconv"
 )
 
@@ -62,7 +62,6 @@ func (e *ZeroGTFSEncoder) Encode(filename string) error {
 // buildIndexMaps creates mappings from GTFS IDs to 0-based array indices
 // This allows us to avoid storing full strings for internal IDs, using compact uint16 indices instead
 func (e *ZeroGTFSEncoder) buildIndexMaps() {
-	fmt.Println("    - Building index maps for GTFS entities...")
 
 	// Map stop IDs to their array indices
 	for i, stop := range e.data.Stops {
@@ -97,7 +96,6 @@ func (e *ZeroGTFSEncoder) buildIndexMaps() {
 // tokenizeAllStrings only tokenizes human-readable display strings (NOT internal IDs)
 // This prevents the uint16 token overflow hazard by excluding IDs like stop_id, route_id, etc.
 func (e *ZeroGTFSEncoder) tokenizeAllStrings() {
-	fmt.Println("    - Tokenizing human-readable display strings only...")
 
 	// Tokenize ONLY display names/phone numbers from agencies (NOT AgencyID)
 	for _, agency := range e.data.Agencies {
@@ -130,7 +128,6 @@ func (e *ZeroGTFSEncoder) tokenizeAllStrings() {
 }
 
 func (e *ZeroGTFSEncoder) extractTripPatterns() {
-	fmt.Println("    - Extracting trip patterns (clustering)...")
 
 	tripStopTimes := make(map[string][]*MockStopTime)
 	for _, st := range e.data.StopTimes {
@@ -205,11 +202,11 @@ func (e *ZeroGTFSEncoder) buildPatternSignature(stopList []*MockStopTime) uint64
 
 	for i, st := range stopList {
 		_, _ = h.Write([]byte(st.StopId))
-		
+
 		if i < len(stopList)-1 {
 			delta := stopList[i+1].DepartTime - st.DepartTime
 			_, _ = h.Write([]byte(":"))
-			
+
 			// Convertimos el número a bytes sin alocar memoria en el Heap
 			b := strconv.AppendUint(buf[:0], uint64(delta), 10)
 			_, _ = h.Write(b)
@@ -219,7 +216,6 @@ func (e *ZeroGTFSEncoder) buildPatternSignature(stopList []*MockStopTime) uint64
 }
 
 func (e *ZeroGTFSEncoder) buildSchedules() {
-	fmt.Println("    - Building schedules...")
 
 	// Cambiamos el mapa para usar el Hash numérico (uint64) en vez de strings pesados
 	tripToPattern := make(map[string]uint64)
@@ -247,7 +243,7 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 			continue
 		}
 
-		// NOTA: Recuerda cambiar el tipo de tu mapa 'e.patternIndex' 
+		// NOTA: Recuerda cambiar el tipo de tu mapa 'e.patternIndex'
 		// para que sea map[uint64]int en lugar de map[string]int
 		patternID := e.patternIndex[hash]
 		stopList := tripStopTimes[trip.TripId]
