@@ -164,7 +164,6 @@ func (e *ZeroGTFSEncoder) extractTripPatterns() {
 				// Store 0-based stop index instead of string token
 				stopIdx, ok := e.stopIDToIndex[st.StopId]
 				if !ok {
-					log.Printf("Warning: stop %s not found in index\n", st.StopId)
 					continue
 				}
 				stopIndices[i] = stopIdx
@@ -231,7 +230,7 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 		sort.Slice(stopList, func(i, j int) bool {
 			return stopList[i].StopSequence < stopList[j].StopSequence
 		})
-		// Ahora devuelve un uint64
+
 		sig := e.buildPatternSignature(stopList)
 		tripToPattern[tripID] = sig
 	}
@@ -239,24 +238,19 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 	for _, trip := range e.data.Trips {
 		hash, ok := tripToPattern[trip.TripId]
 		if !ok {
-			log.Printf("Warning: trip %s has no stop times\n", trip.TripId)
 			continue
 		}
 
-		// NOTA: Recuerda cambiar el tipo de tu mapa 'e.patternIndex'
-		// para que sea map[uint64]int en lugar de map[string]int
 		patternID := e.patternIndex[hash]
 		stopList := tripStopTimes[trip.TripId]
 
 		serviceIdx, ok := e.serviceIDToIndex[trip.ServiceId]
 		if !ok {
-			log.Printf("Warning: service %s not found in index\n", trip.ServiceId)
 			continue
 		}
 
 		routeIdx, ok := e.routeIDToIndex[trip.RouteId]
 		if !ok {
-			log.Printf("Warning: route %s not found in index\n", trip.RouteId)
 			continue
 		}
 
