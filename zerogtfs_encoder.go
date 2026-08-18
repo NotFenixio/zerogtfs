@@ -164,7 +164,6 @@ func (e *ZeroGTFSEncoder) extractTripPatterns() {
 				// Store 0-based stop index instead of string token
 				stopIdx, ok := e.stopIDToIndex[st.StopId]
 				if !ok {
-					log.Printf("Warning: stop %s not found in index\n", st.StopId)
 					continue
 				}
 				stopIndices[i] = stopIdx
@@ -239,7 +238,6 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 	for _, trip := range e.data.Trips {
 		hash, ok := tripToPattern[trip.TripId]
 		if !ok {
-			log.Printf("Warning: trip %s has no stop times\n", trip.TripId)
 			continue
 		}
 
@@ -250,13 +248,11 @@ func (e *ZeroGTFSEncoder) buildSchedules() {
 
 		serviceIdx, ok := e.serviceIDToIndex[trip.ServiceId]
 		if !ok {
-			log.Printf("Warning: service %s not found in index\n", trip.ServiceId)
 			continue
 		}
 
 		routeIdx, ok := e.routeIDToIndex[trip.RouteId]
 		if !ok {
-			log.Printf("Warning: route %s not found in index\n", trip.RouteId)
 			continue
 		}
 
