@@ -98,6 +98,9 @@ func readAgencies(agenciesFile *zip.File, data *MockGTFSData) error {
 	defer rc.Close()
 
 	reader := csv.NewReader(rc)
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
 	reader.ReuseRecord = true
 	header, err := reader.Read()
 	if err != nil {
@@ -145,7 +148,6 @@ func readAgencies(agenciesFile *zip.File, data *MockGTFSData) error {
 		data.Agencies = append(data.Agencies, agency)
 	}
 
-	log.Printf("Read %d agencies", len(data.Agencies))
 	return nil
 }
 
@@ -158,6 +160,9 @@ func readStops(stopsFile *zip.File, data *MockGTFSData) error {
 
 	reader := csv.NewReader(rc)
 	reader.ReuseRecord = true
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stops header: %w", err)
@@ -222,7 +227,6 @@ func readStops(stopsFile *zip.File, data *MockGTFSData) error {
 		data.Stops = append(data.Stops, stop)
 	}
 
-	log.Printf("Read %d stops", len(data.Stops))
 	return nil
 }
 
@@ -235,6 +239,9 @@ func readRoutes(routesFile *zip.File, data *MockGTFSData) error {
 
 	reader := csv.NewReader(rc)
 	reader.ReuseRecord = true
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read routes header: %w", err)
@@ -309,7 +316,6 @@ func readRoutes(routesFile *zip.File, data *MockGTFSData) error {
 		data.Routes = append(data.Routes, route)
 	}
 
-	log.Printf("Read %d routes", len(data.Routes))
 	return nil
 }
 
@@ -322,6 +328,9 @@ func readTrips(tripsFile *zip.File, data *MockGTFSData) error {
 
 	reader := csv.NewReader(rc)
 	reader.ReuseRecord = true
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read trips header: %w", err)
@@ -377,7 +386,6 @@ func readTrips(tripsFile *zip.File, data *MockGTFSData) error {
 		data.Trips = append(data.Trips, trip)
 	}
 
-	log.Printf("Read %d trips", len(data.Trips))
 	return nil
 }
 
@@ -402,6 +410,9 @@ func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 
 	reader := csv.NewReader(rc)
 	reader.ReuseRecord = true
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
 	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read stop_times header: %w", err)
@@ -481,6 +492,5 @@ func readStopTimes(stopTimesFile *zip.File, data *MockGTFSData) error {
 		data.StopTimes = append(data.StopTimes, stopTime)
 	}
 
-	log.Printf("Read %d stop times", len(data.StopTimes))
 	return nil
 }
